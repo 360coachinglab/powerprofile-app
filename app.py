@@ -5,7 +5,6 @@ import numpy as np
 import io
 from fitparse import FitFile
 from vlamax_formula import predict_vlamax
-from sklearn.linear_model import LinearRegression
 
 st.set_page_config(page_title="Leistungsprofil Analyse", layout="wide")
 
@@ -22,16 +21,13 @@ if uploaded_files:
                 fitfile = FitFile(io.BytesIO(file.read()))
                 records = [r.get_values() for r in fitfile.get_messages("record")]
                 df = pd.DataFrame(records)
-                if "power" in df.columns and "timestamp" in df.columns:
-                    df["timestamp"] = pd.to_datetime(df["timestamp"])
-                    df.set_index("timestamp", inplace=True)
-                    df = df.resample("1s").mean().interpolate()
+                if "power" in df.columns:
+                    df = df[["power"]].dropna().reset_index(drop=True)
 
-                    for dur in [1, 5, 20, 30, 60, 120, 180, 300, 600, 900, 1200, 1800, 2400, 3600, 7200]:
-                        window = df["power"].rolling(f"{dur}s").mean()
-                        if not window.empty:
-                            max_power = window.max()
-                            power_data.append((dur, max_power))
+                    for duration in [1, 5, 20, 30, 60, 120, 180, 300, 600, 900, 1200, 1800, 2400, 3600, 7200]:
+                        if len(df) >= duration:
+                            best = df["power"].rolling(window=duration).mean().max()
+                            power_data.append((duration, round(best, 1)))
             except Exception as e:
                 st.error(f"Fehler beim Verarbeiten von {file.name}: {e}")
 
