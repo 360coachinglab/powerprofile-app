@@ -3,14 +3,17 @@ import pandas as pd
 import numpy as np
 from fitparse import FitFile
 import matplotlib.pyplot as plt
+from scipy.ndimage import gaussian_filter1d
 
-st.title("🚴 Kombiniertes Power Profile aus mehreren FIT-Dateien")
-st.write("Lade mehrere FIT-Dateien hoch – das beste Power-Profil wird daraus generiert.")
+st.title("🚴 Kombiniertes Power Profile (1s – 4h)")
+st.write("Lade mehrere FIT-Dateien hoch – die Power Curve wird daraus erstellt.")
 
 uploaded_files = st.file_uploader("FIT-Dateien hochladen", type=["fit"], accept_multiple_files=True)
 
-# Ziel-Dauern in Sekunden
-durations = [20, 30, 60, 180, 240, 300, 600, 720, 900, 1200, 1800]
+# Ziel-Dauern in Sekunden: logarithmisch abgestuft von 1s bis 4h (14400s)
+durations = sorted(set([
+    int(x) for x in np.geomspace(1, 14400, num=100).round()
+]))
 
 def extract_power_series(fitfile):
     power_data = []
@@ -27,7 +30,6 @@ def best_avg_power(power_series, duration_seconds):
     else:
         return np.nan
 
-# Ergebnisse pro Datei und kombiniert
 if uploaded_files:
     all_power_values = []
 
@@ -40,28 +42,25 @@ if uploaded_files:
             continue
 
         single_file_result = {
-            f"{d}s": best_avg_power(power_series, d) for d in durations
+            d: best_avg_power(power_series, d) for d in durations
         }
         all_power_values.append(single_file_result)
 
     if all_power_values:
         df_all = pd.DataFrame(all_power_values)
-        combined_profile = df_all.max(axis=0)
+        combined_profile = df_all.max(axis=0).dropna()
 
-        st.subheader("📊 Kombiniertes Power-Profile (beste Werte aus allen Dateien)")
-        df_result = combined_profile.reset_index()
-        df_result.columns = ["Dauer", "Bestleistung (W)"]
-        st.dataframe(df_result)
+        st.subheader("📊 Kombinierte Power Curve (1s – 4h)")
+        df_result = pd.DataFrame({
+            "Dauer (s)": combined_profile.index.astype(int),
+            "Bestleistung (W)": combined_profile.values
+        }).sort_values("Dauer (s)")
 
-        # Plot
-        fig, ax = plt.subplots()
-        df_result["Dauer (s)"] = df_result["Dauer"].str.replace("s", "").astype(int)
-        ax.plot(df_result["Dauer (s)"], df_result["Bestleistung (W)"], marker='o')
-        ax.set_xlabel("Dauer (s)")
-        ax.set_ylabel("Watt")
-        ax.set_title("Kombinierte Power Curve")
-        st.pyplot(fig)
+        # Glätten
+        df_result["Bestleistung (W)"] = gaussian_filter1d(df_result["Bestleistung (W)"], sigma=2)
+
+        st.line_chart(df_result.set_index("Dauer (s)"))
 
         # Export
         csv = df_result.to_csv(index=False).encode("utf-8")
-        st.download_button("📥 CSV herunterladen", csv, "kombiniertes_power_profile.csv", "text/csv")
+        st.download_button("📥 CSV herunterladen", csv, "power_curve_1s_4h.csv", "text/csv")
