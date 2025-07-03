@@ -2,88 +2,99 @@
 import streamlit as st
 import pandas as pd
 import numpy as np
-import io
-from fitparse import FitFile
-from vlamax_formula import predict_vlamax
+from sklearn.ensemble import RandomForestRegressor
+from sklearn.model_selection import train_test_split
+from sklearn.metrics import r2_score, mean_absolute_error
+import joblib
+import os
 
-st.set_page_config(page_title="Leistungsprofil Analyse", layout="wide")
+st.set_page_config(page_title="Trainierbares VO₂max-Modell", layout="wide")
+st.title("🧠 VO₂max-ML-Modell: Training & Anwendung")
 
-st.title("🚴 Leistungsprofil Analyse & Physiologie")
+MODEL_PATH = "vo2_model.joblib"
+DATA_PATH = "vo2_training_data.csv"
 
-uploaded_files = st.file_uploader("Wähle FIT-Dateien", type=["fit"], accept_multiple_files=True)
+# Daten anzeigen oder hochladen
+if os.path.exists(DATA_PATH):
+    df = pd.read_csv(DATA_PATH)
+    st.subheader("📊 Aktuelle Trainingsdatenbank")
+    st.dataframe(df)
+else:
+    df = pd.DataFrame()
 
-def get_best_power(power_series, duration):
-    return max(
-        power_series[i:i+duration].mean()
-        for i in range(len(power_series) - duration + 1)
-    )
+st.subheader("➕ Neue Athleten-Daten hinzufügen")
+with st.form("neuer_athlet"):
+    col1, col2, col3 = st.columns(3)
+    with col1:
+        gewicht = st.number_input("Gewicht (kg)", 40.0, 120.0, 70.0)
+        fett = st.number_input("Körperfett (%)", 5.0, 40.0, 15.0)
+        vlamax = st.number_input("VLamax", 0.2, 1.0, 0.45)
+    with col2:
+        mmp1s = st.number_input("MMP 1s (W)", 500, 2000, 1100)
+        mmp20s = st.number_input("MMP 20s (W)", 300, 1500, 800)
+        mmp1min = st.number_input("MMP 1min (W)", 250, 1000, 550)
+    with col3:
+        mmp2min = st.number_input("MMP 2min (W)", 250, 900, 500)
+        mmp3min = st.number_input("MMP 3min (W)", 250, 850, 480)
+        mmp5min = st.number_input("MMP 5min (W)", 250, 800, 460)
 
-power_data = []
+    mmp10 = st.number_input("MMP 10min (W)", 200, 700, 410)
+    mmp20 = st.number_input("MMP 20min (W)", 150, 600, 360)
+    vo2 = st.number_input("VO₂max Zielwert (ml/min/kg)", 40.0, 90.0, 65.0)
 
-if uploaded_files:
-    for file in uploaded_files:
-        if file is not None:
-            try:
-                fitfile = FitFile(io.BytesIO(file.read()))
-                records = [r.get_values() for r in fitfile.get_messages("record")]
-                df = pd.DataFrame(records)
-                if "power" in df.columns:
-                    df = df[["power"]].dropna().reset_index(drop=True)
+    submitted = st.form_submit_button("Hinzufügen & Trainieren")
+    if submitted:
+        neue_daten = pd.DataFrame([{
+            "Gewicht": gewicht,
+            "Körperfett": fett,
+            "VLamax": vlamax,
+            "MMP_1s": mmp1s,
+            "MMP_20s": mmp20s,
+            "MMP_1min": mmp1min,
+            "MMP_2min": mmp2min,
+            "MMP_3min": mmp3min,
+            "MMP_5min": mmp5min,
+            "MMP_10min": mmp10,
+            "MMP_20min": mmp20,
+            "VO2max": vo2
+        }])
+        if not df.empty:
+            df = pd.concat([df, neue_daten], ignore_index=True)
+        else:
+            df = neue_daten
+        df.to_csv(DATA_PATH, index=False)
+        st.success("✅ Neue Daten gespeichert!")
 
-                    for duration in [1, 5, 20, 30, 60, 120, 180, 300, 600, 900, 1200, 1800, 2400, 3600, 7200]:
-                        if len(df) >= duration:
-                            best = get_best_power(df["power"], duration)
-                            power_data.append((duration, round(best, 1)))
-            except Exception as e:
-                st.error(f"Fehler beim Verarbeiten von {file.name}: {e}")
+# Training starten
+if not df.empty:
+    df["FFM"] = df["Gewicht"] * (1 - df["Körperfett"] / 100)
+    X = df[["MMP_1s", "MMP_20s", "MMP_1min", "MMP_2min", "MMP_3min", "MMP_5min", "MMP_10min", "MMP_20min", "FFM", "VLamax"]]
+    y = df["VO2max"]
 
-if power_data:
-    df_power = pd.DataFrame(power_data, columns=["Dauer (s)", "Bestleistung (W)"])
-    df_power = df_power.drop_duplicates(subset=["Dauer (s)"])
-    st.subheader("📈 Power-Daten aus FIT-Dateien")
-    st.dataframe(df_power)
+    modell = RandomForestRegressor(n_estimators=200, random_state=42)
+    modell.fit(X, y)
+    joblib.dump(modell, MODEL_PATH)
+    y_pred = modell.predict(X)
+    st.subheader("📈 Modellgüte (Training)")
+    st.write(f"R²: {r2_score(y, y_pred):.3f}")
+    st.write(f"MAE: {mean_absolute_error(y, y_pred):.2f} ml/kg/min")
 
-    st.subheader("🧠 Eingabe für VO2max, VLamax & FTP")
-    gewicht = st.number_input("Gewicht (kg)", 30.0, 120.0, 70.0, 0.1)
-    fett = st.number_input("Körperfett (%)", 5.0, 50.0, 15.0, 0.1)
-    geschlecht = st.selectbox("Geschlecht", ["Mann", "Frau"])
-    geschlecht_code = 1 if geschlecht == "Frau" else 0
+    st.subheader("🎯 Anwendung des trainierten Modells")
+    with st.form("anwendung"):
+        col1, col2 = st.columns(2)
+        with col1:
+            g = st.number_input("Gewicht (kg)", 40.0, 120.0, 70.0, key="ag")
+            kf = st.number_input("Körperfett (%)", 5.0, 40.0, 15.0, key="akf")
+            vl = st.number_input("VLamax", 0.2, 1.0, 0.45, key="avl")
+        with col2:
+            ffm = g * (1 - kf / 100)
+            mmp_values = []
+            for label in ["1s", "20s", "1min", "2min", "3min", "5min", "10min", "20min"]:
+                mmp = st.number_input(f"MMP {label} (W)", 100, 1500, 400, key=f"mmp{label}")
+                mmp_values.append(mmp)
 
-    ffm = gewicht * (1 - fett / 100)
-    avg20 = df_power[df_power["Dauer (s)"] == 20]["Bestleistung (W)"].values[0] if 20 in df_power["Dauer (s)"].values else 0
-    peak = df_power["Bestleistung (W)"].max()
-
-    vlamax = predict_vlamax(ffm, 20, avg20, peak, geschlecht_code)
-    st.success(f"🔬 Geschätzte VLamax: {vlamax:.3f} mmol/l/s")
-
-    ftp = df_power[df_power["Dauer (s)"] == 1200]["Bestleistung (W)"].values[0] if 1200 in df_power["Dauer (s)"].values else 0.95 * avg20
-    ftp_wkg = ftp / gewicht
-    st.success(f"🚀 Geschätzte FTP: {ftp:.0f} W ({ftp_wkg:.2f} W/kg)")
-
-    # Auswahl der VO2max-Methode
-    st.subheader("💨 VO2max-Berechnungsmethode auswählen")
-    vo2_method = st.radio("Methode wählen", ["MMP 5min (16.6 + 8.87×W/kg)", "Critical Power (10.8×W/kg + 7)"])
-
-    mmp_5min = df_power[df_power["Dauer (s)"] == 300]["Bestleistung (W)"].values[0] if 300 in df_power["Dauer (s)"].values else 0
-    cp_est = ftp  # Näherung: FTP ~ CP
-
-    if vo2_method == "MMP 5min (16.6 + 8.87×W/kg)":
-        vo2max = 16.6 + 8.87 * (mmp_5min / gewicht)
-        st.success(f"VO₂max (MMP-5min): {vo2max:.1f} ml/min/kg")
-    else:
-        vo2max = 10.8 * (cp_est / gewicht) + 7
-        st.success(f"VO₂max (Critical Power): {vo2max:.1f} ml/min/kg")
-
-    st.subheader("📋 Trainingszonen nach FTP")
-    zonen = {
-        "Zone 1 (Regeneration)": (0, 0.55),
-        "Zone 2 (Grundlage)": (0.56, 0.75),
-        "Zone 3 (Tempo)": (0.76, 0.90),
-        "Zone 4 (Schwelle)": (0.91, 1.05),
-        "Zone 5 (VO2max)": (1.06, 1.20),
-        "Zone 6 (Anaerob)": (1.21, 1.50),
-        "Zone 7 (Neuromuskulär)": (1.51, 2.50)
-    }
-
-    for zone, (low, high) in zonen.items():
-        st.write(f"{zone}: {low*ftp:.0f} – {high*ftp:.0f} W")
+        predict_btn = st.form_submit_button("VO₂max schätzen")
+        if predict_btn:
+            input_data = np.array(mmp_values + [ffm, vl]).reshape(1, -1)
+            prediction = modell.predict(input_data)[0]
+            st.success(f"💨 Geschätzte VO₂max: {prediction:.1f} ml/min/kg")
