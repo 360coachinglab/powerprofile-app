@@ -2,4 +2,4 @@ streamlit
 fitparse
 numpy
 pandas
-matplotlib
+scikit-learn
