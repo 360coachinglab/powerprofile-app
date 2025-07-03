@@ -1,5 +1,7 @@
 streamlit
-fitparse
-numpy
 pandas
+numpy
 scikit-learn
+matplotlib
+fpdf
+fitparse
