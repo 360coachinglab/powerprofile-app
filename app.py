@@ -30,6 +30,14 @@ def best_avg_power(power_series, duration_seconds):
     else:
         return np.nan
 
+def format_duration(seconds):
+    if seconds < 60:
+        return f"{seconds}s"
+    elif seconds < 3600:
+        return f"{int(seconds / 60)}min"
+    else:
+        return f"{int(seconds / 3600)}h"
+
 if uploaded_files:
     all_power_values = []
 
@@ -59,23 +67,20 @@ if uploaded_files:
         # Glätten
         df_result["Bestleistung (W)"] = gaussian_filter1d(df_result["Bestleistung (W)"], sigma=2)
 
-        # Benutzerdefinierte X-Achsenbeschriftung
-        xticks = {
-            1: "1s", 30: "30s", 60: "1min", 180: "3min", 300: "5min", 600: "10min",
-            1200: "20min", 3600: "1h", 7200: "2h"
-        }
+        # Formatierte Achsenbeschriftung
+        df_result["Dauer formatiert"] = df_result["Dauer (s)"].apply(format_duration)
 
         fig, ax = plt.subplots()
         ax.plot(df_result["Dauer (s)"], df_result["Bestleistung (W)"], color="blue")
+        ax.set_xscale("log")
+        ax.set_xticks(df_result["Dauer (s)"][::10])
+        ax.set_xticklabels(df_result["Dauer formatiert"][::10], rotation=45)
         ax.set_xlabel("Dauer")
         ax.set_ylabel("Watt")
         ax.set_title("Kombinierte Power Curve")
-        ax.set_xscale("log")
-        ax.set_xticks(list(xticks.keys()))
-        ax.set_xticklabels(list(xticks.values()))
         ax.grid(True, which="both", linestyle="--", linewidth=0.5)
         st.pyplot(fig)
 
         # Export
-        csv = df_result.to_csv(index=False).encode("utf-8")
+        csv = df_result[["Dauer (s)", "Bestleistung (W)"]].to_csv(index=False).encode("utf-8")
         st.download_button("📥 CSV herunterladen", csv, "power_curve_1s_2h.csv", "text/csv")
