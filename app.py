@@ -2,13 +2,15 @@ import streamlit as st
 import pandas as pd
 import numpy as np
 from fitparse import FitFile
-import io
 import matplotlib.pyplot as plt
 
-st.title("🚴 Power Profile Analyse")
-st.write("Lade eine .fit-Datei hoch, um Bestwerte über verschiedene Zeiträume zu berechnen.")
+st.title("🚴 Kombiniertes Power Profile aus mehreren FIT-Dateien")
+st.write("Lade mehrere FIT-Dateien hoch – das beste Power-Profil wird daraus generiert.")
 
-uploaded_file = st.file_uploader("FIT-Datei hochladen", type=["fit"])
+uploaded_files = st.file_uploader("FIT-Dateien hochladen", type=["fit"], accept_multiple_files=True)
+
+# Ziel-Dauern in Sekunden
+durations = [20, 30, 60, 180, 240, 300, 600, 720, 900, 1200, 1800]
 
 def extract_power_series(fitfile):
     power_data = []
@@ -19,44 +21,47 @@ def extract_power_series(fitfile):
     return power_data
 
 def best_avg_power(power_series, duration_seconds):
-    return max(
-        np.convolve(power_series, np.ones(duration_seconds), 'valid') / duration_seconds
-    ) if len(power_series) >= duration_seconds else 0
-
-if uploaded_file:
-    fitfile = FitFile(uploaded_file)
-    power_series = extract_power_series(fitfile)
-
-    if len(power_series) == 0:
-        st.error("Keine Leistungsdaten gefunden.")
+    if len(power_series) >= duration_seconds:
+        rolling = np.convolve(power_series, np.ones(duration_seconds), 'valid') / duration_seconds
+        return max(rolling)
     else:
-        st.success(f"{len(power_series)} Leistungsdatenpunkte geladen.")
+        return np.nan
 
-        durations = [20, 30, 60, 180, 240, 300, 600, 720, 900, 1200, 1800]
-        results = {
-            f"{d}s": round(best_avg_power(power_series, d), 1) for d in durations
+# Ergebnisse pro Datei und kombiniert
+if uploaded_files:
+    all_power_values = []
+
+    for file in uploaded_files:
+        fitfile = FitFile(file)
+        power_series = extract_power_series(fitfile)
+
+        if len(power_series) == 0:
+            st.warning(f"⚠️ Keine Leistungsdaten in {file.name}")
+            continue
+
+        single_file_result = {
+            f"{d}s": best_avg_power(power_series, d) for d in durations
         }
+        all_power_values.append(single_file_result)
 
-        df = pd.DataFrame(list(results.items()), columns=["Dauer", "Bestleistung (W)"])
-        st.dataframe(df)
+    if all_power_values:
+        df_all = pd.DataFrame(all_power_values)
+        combined_profile = df_all.max(axis=0)
+
+        st.subheader("📊 Kombiniertes Power-Profile (beste Werte aus allen Dateien)")
+        df_result = combined_profile.reset_index()
+        df_result.columns = ["Dauer", "Bestleistung (W)"]
+        st.dataframe(df_result)
 
         # Plot
         fig, ax = plt.subplots()
-        ax.plot(df["Dauer"], df["Bestleistung (W)"], marker='o')
-        ax.set_xlabel("Dauer")
+        df_result["Dauer (s)"] = df_result["Dauer"].str.replace("s", "").astype(int)
+        ax.plot(df_result["Dauer (s)"], df_result["Bestleistung (W)"], marker='o')
+        ax.set_xlabel("Dauer (s)")
         ax.set_ylabel("Watt")
-        ax.set_title("Power Curve")
+        ax.set_title("Kombinierte Power Curve")
         st.pyplot(fig)
 
-        # Platzhalter für VO2max, FTP, VLamax (später erweiterbar)
-        st.header("📈 Schätzungen (Beta)")
-        ftp = round(results.get("300s", 0) * 0.95, 1)
-        vo2max = round(results.get("300s", 0) / 0.072, 1) if results.get("300s", 0) else 0
-        vlamax = round(results.get("30s", 0) / 1000, 2)
-
-        st.markdown(f"**FTP (geschätzt):** {ftp} W")
-        st.markdown(f"**VO₂max (geschätzt):** {vo2max} ml/min/kg (Platzhalter)")
-        st.markdown(f"**VLamax (grob geschätzt):** {vlamax} mmol/l/s")
-
-        csv = df.to_csv(index=False).encode("utf-8")
-        st.download_button("📥 CSV herunterladen", csv, "powerprofile.csv", "text/csv")
+        # Export
+        csv = df_result.to_csv(index=False).encode("utf-8")
+        st.download_button("📥 CSV herunterladen", csv, "kombiniertes_power_profile.csv", "text/csv")
