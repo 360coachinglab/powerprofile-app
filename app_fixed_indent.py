@@ -69,7 +69,11 @@ if uploaded_files:
     all_best = []
     peak_watts = []
     for file in uploaded_files:
-        fitfile = FitFile(file)
+        try:
+        fitfile = FitFile(io.BytesIO(file.read()))
+    except Exception as e:
+        st.error(f"Fehler beim Verarbeiten von {file.name}: {e}")
+        continue
         power_series = extract_series(fitfile)
         peak_watts.append(max(power_series) if len(power_series) > 0 else np.nan)
         best = {dur: best_avg(power_series, dur) for dur in durations}
@@ -122,7 +126,11 @@ if uploaded_files:
         hr_all = []
         hr_max = 0
         for file in uploaded_files:
-            fitfile = FitFile(file)
+            try:
+        fitfile = FitFile(io.BytesIO(file.read()))
+    except Exception as e:
+        st.error(f"Fehler beim Verarbeiten von {file.name}: {e}")
+        continue
             for record in fitfile.get_messages("record"):
                 hr = record.get_value("heart_rate")
                 if hr:
