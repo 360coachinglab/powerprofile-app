@@ -12,6 +12,12 @@ st.title("🚴 Leistungsprofil Analyse & Physiologie")
 
 uploaded_files = st.file_uploader("Wähle FIT-Dateien", type=["fit"], accept_multiple_files=True)
 
+def get_best_power(power_series, duration):
+    return max(
+        power_series[i:i+duration].mean()
+        for i in range(len(power_series) - duration + 1)
+    )
+
 power_data = []
 
 if uploaded_files:
@@ -26,7 +32,7 @@ if uploaded_files:
 
                     for duration in [1, 5, 20, 30, 60, 120, 180, 300, 600, 900, 1200, 1800, 2400, 3600, 7200]:
                         if len(df) >= duration:
-                            best = df["power"].rolling(window=duration).mean().max()
+                            best = get_best_power(df["power"], duration)
                             power_data.append((duration, round(best, 1)))
             except Exception as e:
                 st.error(f"Fehler beim Verarbeiten von {file.name}: {e}")
