@@ -60,9 +60,9 @@ if power_data:
     ftp_wkg = ftp / gewicht
     st.success(f"🚀 Geschätzte FTP: {ftp:.0f} W ({ftp_wkg:.2f} W/kg)")
 
-    vo2abs = (ftp * 10.8 + 7) / 1000
-    vo2rel = vo2abs * 1000 / gewicht
-    st.success(f"💨 VO2max: {vo2abs:.2f} l/min ({vo2rel:.1f} ml/min/kg)")
+    mmp_5min = df_power[df_power["Dauer (s)"] == 300]["Bestleistung (W)"].values[0] if 300 in df_power["Dauer (s)"].values else 0
+    vo2max = 16.6 + 8.87 * (mmp_5min / gewicht)
+    st.success(f"💨 VO2max: {vo2max:.1f} ml/min/kg (berechnet aus 5-min Max)")
 
     st.subheader("📋 Trainingszonen nach FTP")
     zonen = {
